@@ -1,1 +1,222 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GrandMark CNC Optimizer</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+body{font-family:'Space Grotesk',sans-serif}
+.canvas-bg{
+background-image:
+linear-gradient(45deg,#f0f0f0 25%,transparent 25%),
+linear-gradient(-45deg,#f0f0f0 25%,transparent 25%),
+linear-gradient(45deg,transparent 75%,#f0f0f0 75%),
+linear-gradient(-45deg,transparent 75%,#f0f0f0 75%);
+background-size:20px 20px;
+}
+</style>
+</head>
+
+<body class="bg-slate-900 text-white p-6">
+
+<h1 class="text-3xl font-bold text-pink-400 mb-4">
+GrandMark CNC Optimizer
+</h1>
+
+<div class="grid lg:grid-cols-3 gap-6">
+
+<!-- SETTINGS -->
+<div class="space-y-4">
+
+<div class="bg-slate-800 p-4 rounded-xl">
+<h2 class="text-lg font-semibold mb-2">Material</h2>
+
+<label class="text-sm">Width</label>
+<input id="matW" type="number" value="48"
+class="w-full bg-slate-700 p-2 rounded mb-2">
+
+<label class="text-sm">Height</label>
+<input id="matH" type="number" value="96"
+class="w-full bg-slate-700 p-2 rounded mb-2">
+
+<label class="text-sm">Kerf</label>
+<input id="kerf" type="number" value="0.125"
+class="w-full bg-slate-700 p-2 rounded">
+
+</div>
+
+<div class="bg-slate-800 p-4 rounded-xl">
+<h2 class="text-lg font-semibold mb-2">Add Part</h2>
+
+<input id="name" placeholder="Part Name"
+class="w-full bg-slate-700 p-2 rounded mb-2">
+
+<div class="flex gap-2">
+<input id="w" placeholder="Width"
+class="flex-1 bg-slate-700 p-2 rounded">
+<input id="h" placeholder="Height"
+class="flex-1 bg-slate-700 p-2 rounded">
+<input id="qty" value="1"
+class="flex-1 bg-slate-700 p-2 rounded">
+</div>
+
+<button onclick="addPart()"
+class="bg-pink-600 w-full mt-2 p-2 rounded">
+Add Part
+</button>
+
+</div>
+
+<div class="bg-slate-800 p-4 rounded-xl">
+<h2 class="font-semibold">Parts</h2>
+<div id="partList"></div>
+</div>
+
+</div>
+
+<!-- PREVIEW -->
+<div class="lg:col-span-2 space-y-4">
+
+<button onclick="nest()"
+class="bg-pink-600 p-3 rounded w-full">
+Optimize Nest
+</button>
+
+<button onclick="exportPDF()"
+class="bg-slate-700 p-3 rounded w-full">
+Export PDF
+</button>
+
+<div id="canvas"
+class="canvas-bg border bg-white h-[500px] overflow-auto relative"></div>
+
+</div>
+
+</div>
+
+<script>
+let parts=[]
+let placed=[]
+
+function addPart(){
+const p={
+id:crypto.randomUUID(),
+name:name.value,
+w:parseFloat(w.value),
+h:parseFloat(h.value),
+qty:parseInt(qty.value)
+}
+parts.push(p)
+renderParts()
+}
+
+function renderParts(){
+partList.innerHTML=parts.map(p=>`
+<div class="border-b p-1 text-sm">
+${p.name} ${p.w}"x${p.h}" (${p.qty})
+</div>`).join('')
+}
+
+function nest(){
+
+placed=[]
+let matW=parseFloat(matW.value)
+let kerf=parseFloat(kerf.value)
+
+let x=0
+let y=0
+let rowH=0
+
+parts.forEach(p=>{
+for(let i=0;i<p.qty;i++){
+
+if(x+p.w>matW){
+x=0
+y+=rowH+kerf
+rowH=0
+}
+
+placed.push({...p,x,y})
+x+=p.w+kerf
+rowH=Math.max(rowH,p.h)
+
+}
+})
+
+draw()
+}
+
+function draw(){
+
+let matW=parseFloat(matW.value)
+let matH=parseFloat(matH.value)
+let scale=6
+
+canvas.innerHTML=""
+
+canvas.style.width=matW*scale+"px"
+canvas.style.height=matH*scale+"px"
+
+placed.forEach(p=>{
+let div=document.createElement("div")
+
+div.style.position="absolute"
+div.style.left=p.x*scale+"px"
+div.style.top=p.y*scale+"px"
+div.style.width=p.w*scale+"px"
+div.style.height=p.h*scale+"px"
+
+div.style.border="2px solid hotpink"
+div.style.background="rgba(255,0,120,0.2)"
+
+div.innerHTML=
+`<div style="font-size:10px">${p.name}</div>`
+
+canvas.appendChild(div)
+})
+}
+
+async function exportPDF(){
+
+const pdf=await PDFLib.PDFDocument.create()
+
+let matW=parseFloat(matW.value)
+let matH=parseFloat(matH.value)
+
+let page=pdf.addPage([matW*72,matH*72])
+
+placed.forEach(p=>{
+
+page.drawRectangle({
+x:p.x*72,
+y:matH*72-(p.y+p.h)*72,
+width:p.w*72,
+height:p.h*72,
+borderColor:PDFLib.rgb(1,0,0),
+borderWidth:1
+})
+
+})
+
+let bytes=await pdf.save()
+
+let blob=new Blob([bytes],{type:"application/pdf"})
+let url=URL.createObjectURL(blob)
+
+let a=document.createElement("a")
+a.href=url
+a.download="cnc-layout.pdf"
+a.click()
+
+}
+</script>
+
+</body>
+</html>
